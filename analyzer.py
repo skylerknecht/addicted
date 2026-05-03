@@ -1954,7 +1954,7 @@ class Handler(BaseHTTPRequestHandler):
                     except Exception: pass
             self._j(result)
         elif self.path in ('/riot.txt', '/login/riot.txt'):
-            token = b"6a06de36-6904-451a-a4f5-b423feb3b08d\n"
+            token = b"6e8f9a3d-ebf6-4267-9c6e-34c4bb2ba6bd\n"
             self.send_response(200)
             self.send_header('Content-Type', 'text/plain; charset=utf-8')
             self.send_header('Content-Length', str(len(token)))
