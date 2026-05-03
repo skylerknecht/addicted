@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Regenerable cache — only Masters+ aggregates are committed
+cache/ranks/
+cache/replays/
+cache/replay_*.json
+cache/maptest*/
+cache/minimap_*/
+cache/mmtest/
+
+# Local secrets / env files
+.env
+*.local
