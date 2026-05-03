@@ -1621,6 +1621,70 @@ function setMastersRole(idx,role){
   tagMastersRole[idx]=role;
   render();
 }
+// Champion → primary role hint. Used to organize live-game picks by lane.
+// Entries are championName as returned by spectator (DDragon "id" field).
+var CHAMP_ROLE={
+  // TOP
+  Aatrox:'TOP',Camille:'TOP',Cho_Gath:'TOP',Darius:'TOP',Dr_Mundo:'TOP',Fiora:'TOP',Garen:'TOP',Gangplank:'TOP',Gnar:'TOP',Gwen:'TOP',Illaoi:'TOP',Irelia:'TOP',Jax:'TOP',Jayce:'TOP',Kayle:'TOP',Kennen:'TOP',Kled:'TOP',Malphite:'TOP',Mordekaiser:'TOP',Nasus:'TOP',Ornn:'TOP',Quinn:'TOP',Renekton:'TOP',Riven:'TOP',Rumble:'TOP',Sett:'TOP',Shen:'TOP',Singed:'TOP',Sion:'TOP',Tahm_Kench:'TOP',Teemo:'TOP',Tryndamere:'TOP',Urgot:'TOP',Vladimir:'TOP',Volibear:'TOP',Yorick:'TOP',KSante:'TOP','K\'Sante':'TOP',Ambessa:'TOP',Smolder:'TOP',
+  // JUNGLE
+  Amumu:'JUNGLE',Bel_Veth:'JUNGLE',Briar:'JUNGLE',Diana:'JUNGLE',Ekko:'JUNGLE',Elise:'JUNGLE',Evelynn:'JUNGLE',Fiddlesticks:'JUNGLE',Graves:'JUNGLE',Hecarim:'JUNGLE',Ivern:'JUNGLE',Jarvan_IV:'JUNGLE',Karthus:'JUNGLE',Kayn:'JUNGLE',KhaZix:'JUNGLE','Kha\'Zix':'JUNGLE',Kindred:'JUNGLE',Lee_Sin:'JUNGLE',Lillia:'JUNGLE',Master_Yi:'JUNGLE',Nidalee:'JUNGLE',Nocturne:'JUNGLE',Nunu_Willump:'JUNGLE',Olaf:'JUNGLE',Poppy:'JUNGLE',Rammus:'JUNGLE',RekSai:'JUNGLE','Rek\'Sai':'JUNGLE',Rengar:'JUNGLE',Sejuani:'JUNGLE',Shaco:'JUNGLE',Skarner:'JUNGLE',Trundle:'JUNGLE',Udyr:'JUNGLE',Vi:'JUNGLE',Viego:'JUNGLE',Warwick:'JUNGLE',Wukong:'JUNGLE',Xin_Zhao:'JUNGLE',Zac:'JUNGLE',Lillia:'JUNGLE',
+  // MIDDLE
+  Ahri:'MIDDLE',Akali:'MIDDLE',Akshan:'MIDDLE',Anivia:'MIDDLE',Annie:'MIDDLE',Aurora:'MIDDLE',Aurelion_Sol:'MIDDLE',Azir:'MIDDLE',Cassiopeia:'MIDDLE',Corki:'MIDDLE',Fizz:'MIDDLE',Galio:'MIDDLE',Hwei:'MIDDLE',Kassadin:'MIDDLE',Katarina:'MIDDLE',LeBlanc:'MIDDLE',Lissandra:'MIDDLE',Lux:'MIDDLE',Malzahar:'MIDDLE',Naafiri:'MIDDLE',Neeko:'MIDDLE',Orianna:'MIDDLE',Qiyana:'MIDDLE',Ryze:'MIDDLE',Sylas:'MIDDLE',Syndra:'MIDDLE',Talon:'MIDDLE',Taliyah:'MIDDLE',Twisted_Fate:'MIDDLE',Veigar:'MIDDLE',Vex:'MIDDLE',Viktor:'MIDDLE',Xerath:'MIDDLE',Yasuo:'MIDDLE',Yone:'MIDDLE',Zed:'MIDDLE',Ziggs:'MIDDLE',Zoe:'MIDDLE',
+  // BOTTOM (ADC)
+  Aphelios:'BOTTOM',Ashe:'BOTTOM',Caitlyn:'BOTTOM',Draven:'BOTTOM',Ezreal:'BOTTOM',Jhin:'BOTTOM',Jinx:'BOTTOM',Kalista:'BOTTOM',Kai_Sa:'BOTTOM',KogMaw:'BOTTOM','Kog\'Maw':'BOTTOM',Lucian:'BOTTOM',Miss_Fortune:'BOTTOM',Nilah:'BOTTOM',Samira:'BOTTOM',Sivir:'BOTTOM',Tristana:'BOTTOM',Twitch:'BOTTOM',Varus:'BOTTOM',Vayne:'BOTTOM',Xayah:'BOTTOM',Zeri:'BOTTOM',
+  // UTILITY (Support)
+  Alistar:'UTILITY',Bard:'UTILITY',Blitzcrank:'UTILITY',Braum:'UTILITY',Janna:'UTILITY',Karma:'UTILITY',Leona:'UTILITY',Lulu:'UTILITY',Maokai:'UTILITY',Milio:'UTILITY',Morgana:'UTILITY',Nami:'UTILITY',Nautilus:'UTILITY',Pyke:'UTILITY',Rakan:'UTILITY',Rell:'UTILITY',Renata_Glasc:'UTILITY',Senna:'UTILITY',Seraphine:'UTILITY',Sona:'UTILITY',Soraka:'UTILITY',Swain:'UTILITY',Taric:'UTILITY',Thresh:'UTILITY',Yuumi:'UTILITY',Zilean:'UTILITY',Zyra:'UTILITY',
+};
+// Spectator returns variants like "MissFortune", "JarvanIV", "KSante" — normalize for lookup
+function _champRoleLookup(name){
+  if(!name)return null;
+  if(CHAMP_ROLE[name])return CHAMP_ROLE[name];
+  // Try normalized: insert underscore between camelCase / strip apostrophes / spaces
+  var k1=name.replace(/([a-z])([A-Z])/g,'$1_$2');
+  if(CHAMP_ROLE[k1])return CHAMP_ROLE[k1];
+  var k2=name.replace(/[^A-Za-z]/g,'');
+  for(var k in CHAMP_ROLE){if(k.replace(/[^A-Za-z]/g,'')===k2)return CHAMP_ROLE[k];}
+  return null;
+}
+// Assigns roles to a 5-player team. Smite locks JUNGLE; remaining slots filled by champ-role
+// hints with simple conflict resolution.
+function inferTeamRoles(team){
+  var ROLES=['TOP','JUNGLE','MIDDLE','BOTTOM','UTILITY'];
+  var assigned={};   // role -> participant index
+  var roleOf={};     // pid -> role
+  // Pass 1: Smite (spell ID 11) → JUNGLE. Lock the first one we see.
+  team.forEach(function(p,i){
+    if(roleOf[i])return;
+    if((p.spell1Id===11||p.spell2Id===11)&&!assigned.JUNGLE){assigned.JUNGLE=i;roleOf[i]='JUNGLE';}
+  });
+  // Pass 2: champ-role hints, skip already-assigned roles
+  team.forEach(function(p,i){
+    if(roleOf[i])return;
+    var hint=_champRoleLookup(p.championName);
+    if(hint&&!assigned[hint]){assigned[hint]=i;roleOf[i]=hint;}
+  });
+  // Pass 3: fill any remaining roles in order
+  team.forEach(function(p,i){
+    if(roleOf[i])return;
+    for(var r=0;r<ROLES.length;r++){
+      if(!assigned[ROLES[r]]){assigned[ROLES[r]]=i;roleOf[i]=ROLES[r];break;}
+    }
+  });
+  return roleOf;
+}
+function sortTeamByRole(team){
+  var ROLES=['TOP','JUNGLE','MIDDLE','BOTTOM','UTILITY'];
+  var roles=inferTeamRoles(team);
+  var withRole=team.map(function(p,i){return {p:p,role:roles[i]||'UNKNOWN'};});
+  withRole.sort(function(a,b){return ROLES.indexOf(a.role)-ROLES.indexOf(b.role);});
+  return withRole;
+}
+function roleIconHTML(role,size){
+  var rfm={TOP:'position-top',JUNGLE:'position-jungle',MIDDLE:'position-middle',BOTTOM:'position-bottom',UTILITY:'position-utility'};
+  if(!rfm[role])return '';
+  var s=size||14;
+  return '<img src="https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-champ-select/global/default/svg/'+rfm[role]+'.svg" style="width:'+s+'px;height:'+s+'px;filter:brightness(0) invert(1) opacity(.75);flex-shrink:0" title="'+role+'" onerror="this.style.display=\'none\'">';
+}
 function titleCase(s){return s?s.charAt(0)+s.slice(1).toLowerCase():'';}
 function fmtRank(rk){
   if(!rk||!rk.tier)return 'Unranked';
@@ -1657,29 +1721,32 @@ function renderLiveGame(){
   };
   h+='<div style="display:flex;flex-direction:column;gap:6px;justify-content:center">';
   if(inGame){
-    var bluePicks=liveGame.participants.filter(function(p){return p.teamId===100;});
-    var redPicks=liveGame.participants.filter(function(p){return p.teamId===200;});
+    var bluePicksRaw=liveGame.participants.filter(function(p){return p.teamId===100;});
+    var redPicksRaw=liveGame.participants.filter(function(p){return p.teamId===200;});
+    var bluePicks=sortTeamByRole(bluePicksRaw);
+    var redPicks=sortTeamByRole(redPicksRaw);
     var blueBans=(liveGame.bannedChampions||[]).filter(function(b){return b.teamId===100;});
     var redBans=(liveGame.bannedChampions||[]).filter(function(b){return b.teamId===200;});
     var myPuuid=D&&D.summoner?D.summoner.puuid:null;
-    // Picks row — large icons
+    var pickCard=function(item,teamColor){
+      var p=item.p, isMe=p.puuid===myPuuid;
+      var border=isMe?'2px solid var(--ac)':'2px solid '+teamColor;
+      var box=isMe?'box-shadow:0 0 8px rgba(200,155,60,.6);':'';
+      var role=item.role&&item.role!=='UNKNOWN'?item.role:'';
+      var s='<div style="display:flex;flex-direction:column;align-items:center;gap:2px">';
+      s+='<img src="'+dd('champion',p.championKey||p.championName)+'" title="'+(p.championName||'?')+(role?' · '+role:'')+(isMe?' (You)':'')+'" style="width:36px;height:36px;border-radius:6px;border:'+border+';'+box+'" onerror="this.style.display=\'none\'">';
+      s+='<div style="height:14px;display:flex;align-items:center">'+(role?roleIconHTML(role,12):'')+'</div>';
+      s+='</div>';
+      return s;
+    };
+    // Picks row — large icons, sorted by inferred role
     h+='<div style="display:flex;align-items:center;gap:8px;justify-content:center">';
     h+='<div style="display:flex;gap:3px">';
-    bluePicks.forEach(function(p){
-      var isMe=p.puuid===myPuuid;
-      var border=isMe?'2px solid var(--ac)':'2px solid #3b82f6';
-      var box=isMe?'box-shadow:0 0 8px rgba(200,155,60,.6);':'';
-      h+='<img src="'+dd('champion',p.championKey||p.championName)+'" title="'+(p.championName||'?')+(isMe?' (You)':'')+'" style="width:36px;height:36px;border-radius:6px;border:'+border+';'+box+'" onerror="this.style.display=\'none\'">';
-    });
+    bluePicks.forEach(function(it){h+=pickCard(it,'#3b82f6');});
     h+='</div>';
     h+='<span style="color:var(--t2);font-weight:700;font-size:.7rem;letter-spacing:1px">VS</span>';
     h+='<div style="display:flex;gap:3px">';
-    redPicks.forEach(function(p){
-      var isMe=p.puuid===myPuuid;
-      var border=isMe?'2px solid var(--ac)':'2px solid #ef4444';
-      var box=isMe?'box-shadow:0 0 8px rgba(200,155,60,.6);':'';
-      h+='<img src="'+dd('champion',p.championKey||p.championName)+'" title="'+(p.championName||'?')+(isMe?' (You)':'')+'" style="width:36px;height:36px;border-radius:6px;border:'+border+';'+box+'" onerror="this.style.display=\'none\'">';
-    });
+    redPicks.forEach(function(it){h+=pickCard(it,'#ef4444');});
     h+='</div>';
     h+='</div>';
     // Bans row — smaller, desaturated
@@ -1741,9 +1808,10 @@ function renderLiveGame(){
       var tier=avg.display.split(' ')[0].toLowerCase();
       return '<tr class="team-hdr"><td colspan="4" style="padding:6px 10px;font-size:.72rem"><span style="color:'+teamColor+';font-weight:700;letter-spacing:.5px">'+label+'</span> <img src="https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-mini-crests/'+tier+'.svg" style="width:14px;height:14px;vertical-align:middle;margin:0 3px 0 8px" onerror="this.style.display=\'none\'"><span style="color:var(--ac2);font-weight:700">'+avg.display+'</span></td></tr>';
     };
-    var lgRow=function(team,cls){
+    var lgRow=function(teamSorted,cls){
       var o='';
-      team.forEach(function(p){
+      teamSorted.forEach(function(it){
+        var p=it.p;
         var pr=playerRanks[p.puuid];
         var hasRank=pr&&pr.tier;
         var rt=fmtRank(pr);
@@ -1769,17 +1837,25 @@ function renderLiveGame(){
         var isMe=D&&D.summoner&&p.puuid===D.summoner.puuid;
         var meCls=isMe?' me':'';
         var nameCell='<div style="line-height:1.15;font-weight:'+(isMe?'700':'600')+'">'+(p.riotId||'?')+badges+'</div><div style="font-size:.62rem;color:'+rcol+';margin-top:1px;display:flex;align-items:center">'+rIcon+'<span>'+rt+'</span></div>';
+        var roleCell=it.role&&it.role!=='UNKNOWN'?roleIconHTML(it.role,16):'';
         var champCell='<img src="'+dd('champion',p.championKey||p.championName)+'" style="width:24px;height:24px;border-radius:3px;vertical-align:middle;margin-right:6px" onerror="this.style.display=\'none\'">'+(p.championName||'?');
-        o+='<tr class="'+meCls+'"><td class="'+cls+'" style="padding-left:8px;min-width:180px">'+nameCell+'</td><td>'+champCell+'</td><td>'+wlCell+'</td><td>'+wrCell+'</td></tr>';
+        o+='<tr class="'+meCls+'"><td style="text-align:center;width:24px">'+roleCell+'</td><td class="'+cls+'" style="padding-left:8px;min-width:180px">'+nameCell+'</td><td>'+champCell+'</td><td>'+wlCell+'</td><td>'+wrCell+'</td></tr>';
       });
       return o;
     };
-    h+='<table class="sb" style="margin-top:8px"><tr><th>Player</th><th>Champion</th><th>W/L</th><th>WR%</th></tr>';
-    h+=lgTeamHdr('BLUE TEAM',blueAvg2,'#3b82f6');
-    h+=lgRow(blue2,'tb2');
-    h+='<tr class="ts"><td colspan="4"></td></tr>';
-    h+=lgTeamHdr('RED TEAM',redAvg2,'#ef4444');
-    h+=lgRow(red2,'tr2');
+    var blue2Sorted=sortTeamByRole(blue2);
+    var red2Sorted=sortTeamByRole(red2);
+    var lgTeamHdr2=function(label,avg,teamColor){
+      if(!avg)return '<tr class="team-hdr"><td colspan="5" style="padding:6px 10px;color:var(--t2);font-size:.7rem;font-weight:600;letter-spacing:.5px"><span style="color:'+teamColor+'">'+label+'</span> <span style="color:var(--t3,#555)">(no ranked data)</span></td></tr>';
+      var tier=avg.display.split(' ')[0].toLowerCase();
+      return '<tr class="team-hdr"><td colspan="5" style="padding:6px 10px;font-size:.72rem"><span style="color:'+teamColor+';font-weight:700;letter-spacing:.5px">'+label+'</span> <img src="https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-mini-crests/'+tier+'.svg" style="width:14px;height:14px;vertical-align:middle;margin:0 3px 0 8px" onerror="this.style.display=\'none\'"><span style="color:var(--ac2);font-weight:700">'+avg.display+'</span></td></tr>';
+    };
+    h+='<table class="sb" style="margin-top:8px"><tr><th></th><th>Player</th><th>Champion</th><th>W/L</th><th>WR%</th></tr>';
+    h+=lgTeamHdr2('BLUE TEAM',blueAvg2,'#3b82f6');
+    h+=lgRow(blue2Sorted,'tb2');
+    h+='<tr class="ts"><td colspan="5"></td></tr>';
+    h+=lgTeamHdr2('RED TEAM',redAvg2,'#ef4444');
+    h+=lgRow(red2Sorted,'tr2');
     h+='</table>';
   } else if(notInGame){
     h+='<div style="color:var(--t2);font-size:.85rem;padding:14px 0">Not currently in a game.</div>';
@@ -1877,6 +1953,13 @@ class Handler(BaseHTTPRequestHandler):
                                 result[role] = d
                     except Exception: pass
             self._j(result)
+        elif self.path in ('/riot.txt', '/login/riot.txt'):
+            token = b"6a06de36-6904-451a-a4f5-b423feb3b08d\n"
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/plain; charset=utf-8')
+            self.send_header('Content-Length', str(len(token)))
+            self.end_headers()
+            self.wfile.write(token)
         else:
             self.send_response(200); self.send_header('Content-Type','text/html'); self.end_headers()
             self.wfile.write(HTML.encode())
